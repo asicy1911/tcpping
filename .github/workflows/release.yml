@@ -1,19 +1,39 @@
 name: build-and-release
 
 on:
+  # 1) 仍然支持：push tag 自动发布
   push:
     tags:
       - "v*"
+  # 2) 新增：网页 Actions 里手动点 “Run workflow”
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag，例如 v0.1.0"
+        required: true
+      ref:
+        description: "从哪个分支/commit 构建（默认 main，也可以填 commit SHA）"
+        required: false
+        default: "main"
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      # tag 触发：默认 checkout 触发点（就是这个 tag 指向的 commit）
+      - name: Checkout (tag trigger)
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/checkout@v4
+
+      # 手动触发：checkout 你输入的 ref（默认 main）
+      - name: Checkout (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -25,7 +45,6 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-
           APP="tcpping-connect"
           SRC="tcpping-connect.go"
 
@@ -34,8 +53,21 @@ jobs:
 
           (cd dist && sha256sum * > SHA256SUMS.txt)
 
-      - name: Create GitHub Release and upload assets
+      # tag 触发：tag 已存在，直接发布/更新并上传资产
+      - name: Release (tag trigger)
+        if: github.event_name != 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
+          files: |
+            dist/*
+
+      # 手动触发：用你输入的 tag/ref 创建 tag+release 并上传资产
+      - name: Release (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          target_commitish: ${{ inputs.ref }}
+          generate_release_notes: true
           files: |
             dist/*
